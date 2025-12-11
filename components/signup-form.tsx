@@ -1,7 +1,9 @@
 "use client";
+import Link from "next/link";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { useMutation } from '@tanstack/react-query'
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,26 +22,29 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { FieldDescription } from "./ui/field";
-import Link from "next/link";
+import { login, setLoading } from '@/stores/slices/developerSlice'
+import { useAppDispatch } from '@/stores/hook'
+import { setAuthToken } from '@/lib/auth'
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
-interface SignForm {
+ 
+export interface SignForm {
   name: string;
   email: string;
-  role: string;
+  role: "DEVELOPER" | "MANAGER" | "ADMIN";
   password: string;
   confirmPassword: string;
 }
 
 const formSchema = z
   .object({
-    name: z.string().min(2, {
-      message: "Name must be at least 2 characters.",
-    }),
+    name:z.string().min(2, "Name is very short").max(50),
     email: z.string().email({
       message: "Please enter a valid email address.",
     }),
-    role: z.string().min(1, {
-      message: "Please select a role.",
+    role: z.enum(["DEVELOPER", "MANAGER", "ADMIN"], {
+      message: "Please select a valid role.",
     }),
     password: z.string().min(8, {
       message: "Password must be at least 8 characters.",
@@ -51,26 +56,71 @@ const formSchema = z
     path: ["confirmPassword"],
   });
 
+
 export default function SignupForm() {
+  const [apiError, setApiError] = useState<string>("");
+  const router = useRouter();
+  const dispatch = useAppDispatch();
+
   const {
     register,
     handleSubmit,
     control,
     formState: { errors },
-  } = useForm({
+  } = useForm<SignForm>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: "",
       email: "",
-      role: "",
+      role: "DEVELOPER" as const,
       password: "",
       confirmPassword: "",
     },
   });
 
+  const mutation = useMutation({
+    mutationFn: async (data: SignForm) => {
+      const response = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || "Registration failed");
+      }
+
+      return result;
+    },
+    onMutate: () => {
+      setApiError("");
+      dispatch(setLoading(true));
+    },
+    onSuccess: (result) => {
+      setAuthToken(result.token);
+      dispatch(
+        login({
+          id: result.developer.id,
+          name: result.developer.name,
+          email: result.developer.email,
+          role: result.developer.role,
+          token: result.token,
+        })
+      );
+      router.push("/dashboard");
+    },
+    onError: (error: Error) => {
+      setApiError(error.message);
+      dispatch(setLoading(false));
+    },
+  });
+
   const onSubmit = (data: SignForm) => {
-    console.log(data);
-    alert("Registration successful! Check console for form data.");
+    mutation.mutate(data);
   };
 
   return (
@@ -84,6 +134,11 @@ export default function SignupForm() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
+            {apiError && (
+              <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
+                {apiError}
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
               <Input id="name" placeholder="John Doe" {...register("name")} />
@@ -116,11 +171,9 @@ export default function SignupForm() {
                       <SelectValue placeholder="Select a role" />
                     </SelectTrigger>
                     <SelectContent className="w-full">
-                      <SelectItem value="developer">Developer</SelectItem>
-                      <SelectItem value="project-manager">
-                        Project Manager
-                      </SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="DEVELOPER">Developer</SelectItem>
+                      <SelectItem value="MANAGER">Manager</SelectItem>
+                      <SelectItem value="ADMIN">Admin</SelectItem>
                     </SelectContent>
                   </Select>
                 )}
@@ -159,8 +212,8 @@ export default function SignupForm() {
                 </p>
               )}
             </div>
-            <Button onClick={handleSubmit(onSubmit)} className="w-full">
-              Register
+            <Button onClick={handleSubmit(onSubmit)} className="w-full" disabled={mutation.isPending}>
+              {mutation.isPending ? "Creating account..." : "Register"}
             </Button>
             <FieldDescription className="px-6 text-center">
               Already have an account? <Link href="/login">Sign in</Link>

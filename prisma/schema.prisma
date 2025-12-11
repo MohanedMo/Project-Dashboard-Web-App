@@ -1,0 +1,25 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Developer {
+  id             String   @id @default(cuid()) 
+  name           String
+  email          String   @unique
+  password       String
+  role           Role     @default(DEVELOPER)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("developers")
+}
+
+enum Role {
+  DEVELOPER
+  MANAGER
+  ADMIN
+}
